@@ -1,0 +1,55 @@
+```yaml
+# Repository configuration file for pipeline scripts
+# Edit paths and settings to suit your environment before running scripts.
+
+region: "China"
+soil_property: "pH" # e.g. "pH", "SOC", "N", "P", "K"
+depth: "05"  # e.g. "05" for 0-5cm, "515" for 5-15cm
+seed: 666
+
+# Input / output directories
+input_dir: "data"               # directory containing *_combined_data.csv (sample CSVs)
+raster_stack_dir: "Block/Forests_Raster_stack_item"  # directory containing raster_stack_*.tif
+output_dir: "outputs"           # where outputs (rds/csv/png/tif) are written
+scripts_dir: "scripts"          # location of scripts (this folder)
+
+# File name patterns (can be adjusted)
+combined_pattern: "_combined_data.csv"
+best_features_suffix: "_best_features.rds"
+final_model_suffix: "_final_qrf_model.rds"
+optimized_performance_pattern: "_optimized_performance.csv"
+raster_stack_pattern: "^raster_stack_.*\\.tif$"
+
+# FRFS settings
+frfs:
+  method: "rf"          # "rf", "plsr", or "cubist"
+  early_stop: true
+  rf_num_trees: 500
+  cv_folds: 5
+  categorical_vars:     # names of categorical variables to convert to factors if present
+    - "FT"
+    - "Geol"
+    - "Geomor"
+    - "Soil"
+
+# Tuning settings (mlr3)
+tuning:
+  resampling_folds: 10
+  n_evals: 50
+  param_search:
+    mtry:
+      lower: 2
+      upper: null   # null means the script will use number of features dynamically
+    num.trees:
+      lower: 100
+      upper: 1500
+    min.node.size:
+      lower: 3
+      upper: 50
+
+# Prediction 
+prediction:
+  cache_dir: "outputs/cache"     # where tiled and merged tif outputs are written
+  checkpoint_suffix: "_checkpoint.rds"
+  # quantiles to save (list of numeric, e.g. [0.05,0.5,0.95])
+  quantiles: [0.05, 0.5, 0.95]

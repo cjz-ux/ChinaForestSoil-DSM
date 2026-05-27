@@ -1,55 +1,55 @@
-```yaml
-# Repository configuration file for pipeline scripts
-# Edit paths and settings to suit your environment before running scripts.
+# DSM Pipeline Configuration
+# Tailored for streamlined, single-target workflow (steps 1–4, e.g. for "v0_5" modeling)
 
+# General settings
 region: "China"
-soil_property: "pH" # e.g. "pH", "SOC", "N", "P", "K"
-depth: "05"  # e.g. "05" for 0-5cm, "515" for 5-15cm
-seed: 666
+soil_property: "pH"       # Target soil property (e.g. "pH", "SOC")
+depth: "05"               # Depth code, e.g. "05" for 0–5cm (informative)
+seed: 42                  # Random seed for reproducibility
 
-# Input / output directories
-input_dir: "data"               # directory containing *_combined_data.csv (sample CSVs)
-raster_stack_dir: "Block/Forests_Raster_stack_item"  # directory containing raster_stack_*.tif
-output_dir: "outputs"           # where outputs (rds/csv/png/tif) are written
-scripts_dir: "scripts"          # location of scripts (this folder)
+# Directory structure
+input_dir: "data"                               # Source of harmonized_soil.csv etc.
+output_dir: "outputs"                           # Results and models are written here
+raster_stack_dir: "Block/Forests_Raster_stack_item" # Directory of raster_stack_*.tif
+scripts_dir: "scripts"                          # (optional) folder for pipeline scripts
 
-# File name patterns (can be adjusted)
-combined_pattern: "_combined_data.csv"
-best_features_suffix: "_best_features.rds"
-final_model_suffix: "_final_qrf_model.rds"
-optimized_performance_pattern: "_optimized_performance.csv"
-raster_stack_pattern: "^raster_stack_.*\\.tif$"
+# File naming (all key interfaces between steps set here)
+combined_pattern: "harmonized_soil.csv"         # Step 2+ reads this as table input
+best_feature_file: "best_features.rds"          # Step 2 output, input for 3/4
+final_model_file: "v0_5_final_rf_model.rds"     # Step 3 output, input for 4
+raster_stack_pattern: "^raster_stack_.*\\.tif$" # For finding raster tiles in step 4
+output_prefix: "v0_5"                           # For grouping model files/outputs
+response_col: "v0_5"                            # The target variable throughout
 
-# FRFS settings
+# Feature selection settings (Step 2)
 frfs:
-  method: "rf"          # "rf", "plsr", or "cubist"
+  method: "rf"            # Model: "rf", "plsr", or "cubist"
   early_stop: true
   rf_num_trees: 500
   cv_folds: 5
-  categorical_vars:     # names of categorical variables to convert to factors if present
-    - "FT"
-    - "Geol"
-    - "Geomor"
-    - "Soil"
+  categorical_vars:       # Variables treated as categorical (factor) if present
+    - FT
+    - Geol
+    - Geomor
+    - Soil
 
-# Tuning settings (mlr3)
+# Hyperparameter tuning (Step 3; mlr3)
 tuning:
-  resampling_folds: 10
-  n_evals: 50
+  resampling_folds: 5
+  n_evals: 25
   param_search:
     mtry:
       lower: 2
-      upper: null   # null means the script will use number of features dynamically
+      upper: null          # null = use number of features
     num.trees:
       lower: 100
-      upper: 1500
+      upper: 500
     min.node.size:
       lower: 3
-      upper: 50
+      upper: 20
 
-# Prediction 
+# Prediction (Step 4)
 prediction:
-  cache_dir: "outputs/cache"     # where tiled and merged tif outputs are written
+  quantiles: [0.05, 0.5, 0.95]           # Lower/median/upper (adjust as model supports)
+  cache_dir: "outputs/cache"             # For tiles and mosaics
   checkpoint_suffix: "_checkpoint.rds"
-  # quantiles to save (list of numeric, e.g. [0.05,0.5,0.95])
-  quantiles: [0.05, 0.5, 0.95]

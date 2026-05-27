@@ -1,21 +1,21 @@
-# ChinaForestSoilProperties-DSM — Forest Soil Properties Digital Soil Mapping (DSM)
+# ChinaForestSoilProperties-DSM — Forest Soil Properties Digital Soil Mapping Pipeline
 
-**ChinaForestSoilProperties-DSM** is an R-based reproducible pipeline for mapping various forest soil properties (e.g., SOC, pH, total nitrogen, etc.) across China using sample-based Quantile Random Forest (QRF). The workflow achieves automated feature selection, model training, and block-wise raster prediction and mosaicking. All workflow parameters and file naming conventions are centrally controlled for maximum flexibility and reproducibility.
+**ChinaForestSoilProperties-DSM** is a reproducible R-based pipeline for digital soil mapping (DSM) of forest soil properties (e.g., pH, SOC, N, P, K) across China. The workflow is fully automated, performs feature selection, model training, and block-wise raster prediction and mosaicking. All configuration and file management is handled centrally for reproducibility and flexibility.
 
 ---
 
 ## Table of Contents
 
-- Project name
-- Quick start
-- Data and file naming conventions
-- Pipeline steps
-- Configuration (`config.yml`)
-- Outputs
-- Reproducibility
-- License
-- Citation & Contact
-- Notes
+- [Project name](#project-name)
+- [Quick start](#quick-start)
+- [Data & file naming conventions](#data--file-naming-conventions)
+- [Pipeline steps](#pipeline-steps)
+- [Configuration (`config.yml`)](#configuration-configyml)
+- [Outputs](#outputs)
+- [Reproducibility](#reproducibility)
+- [License](#license)
+- [Citation & Contact](#citation--contact)
+- [Notes](#notes)
 
 ---
 
@@ -33,134 +33,188 @@
    cd <repo>
    ```
 
-2. **Edit `config.yml` in the repository root** to specify your region, soil property, depth, directories, and other parameters.
-   - Example fields:
+2. **Edit `config.yml`**  
+   - Open `config.yml` in the repository root and set these parameters according to your application:
      ```yaml
      region: "China"
      soil_property: "pH"
      depth: "05"
-     input_dir: "./data"
-     raster_stack_dir: "./raster_tiles"
-     output_dir: "./outputs"
-     seed: 666
+     input_dir: "data"
+     raster_stack_dir: "Block/Forests_Raster_stack_item"
+     output_dir: "outputs"
+     output_prefix: "v0_5"
+     response_col: "v0_5"
+     seed: 42
      ```
-   - Adjust other settings as needed for your environment.
+   - All file naming, feature/model selection, and target soil property settings are controlled via `config.yml`.
 
-3. **Install dependencies:**
+3. **Install R dependencies:**
    ```sh
    Rscript install_deps.R
    ```
-   For stricter reproducibility, use `renv` or Docker.
+   For absolute reproducibility, optionally use `renv::restore()`  
+   or build/run in a Docker container.
 
-3. **Run each pipeline step:**
+4. **Run each pipeline step in sequence:**
    ```sh
-   Rscript scripts/step_1_FRFS.R config.yml
-   Rscript scripts/step_2_tuning.R config.yml
-   Rscript scripts/step_3_predict.R config.yml
+   # Step 1: Harmonize soil profiles
+   Rscript scripts/step1_adaptive_equal_area_spline.R rawdata.csv data/harmonized_soil.csv
+
+   # Step 2: Feature Selection
+   Rscript scripts/step2_FRFS.R config.yml
+
+   # Step 3: Model Tuning & Training
+   Rscript scripts/step_3_tuning.R config.yml
+
+   # Step 4: Block-wise Raster Prediction & Mosaicking
+   Rscript scripts/step_4_predict.R config.yml
    ```
-   Steps 1 (feature selection), 2 (model training & tuning), and 3 (block-wise raster prediction and mosaicking) are sufficient for core SOC/soil property mapping.  
-   You may omit step 3 (variable importance and plotting) if not required.
+
+   - After each step, key results are automatically named and organized as specified in `config.yml`.
+   - No manual file renaming or intervention is required as long as you follow the config.
 
 ---
 
-## Data and file naming conventions
+## Data & file naming conventions
 
-- **Input sample file:**  
-  CSV format, named as  
-  `<region>_<soilproperty><depth>_combined_data.csv`  
-  _Example:_ `China_pH020_combined_data.csv`
+- **Sample data CSV:**  
+  Your (raw) profile data, e.g., `rawdata.csv`.  
+  Must contain at least: `ID`, `Upper_depth`, `Lower_depth`, `Soilproperties`.
 
-- **CSV columns:**
-  - The first column must be the response variable (soil property of interest), named `y`
-  - Remaining columns: covariates/predictors (`X1, X2, ..., XN`)
+- **Harmonized soil table:**  
+  Produced by step 1 as `harmonized_soil.csv` (see `input_dir`/`combined_pattern` in config).
 
-- **Intermediate and output files:** All key files are automatically named using variables from the config.
-  - Best features file: `<region>_<soilproperty><depth>_best_features.rds`
-  - Model file: `<region>_<soilproperty><depth>_final_qrf_model.rds`
-  - Performance log: `<region>_<soilproperty><depth>_FRFS_performance.txt`
-  - Tuning results: `<region>_<soilproperty><depth>_optimized_performance.csv`
-  - Block prediction rasters (tile/merged): `*_pred.tif`, `*_lower.tif`, `*_upper.tif`
+- **Feature/model and prediction files:**  
+  - `best_features.rds`: List of predictor names, output of step 2, input to 3 & 4.
+  - `v0_5_final_rf_model.rds`: Trained model for your chosen target, output by step 3.
+  - Outputs are always named using `output_prefix` and target info (e.g. `v0_5_pred.tif`) as specified in `config.yml`.
 
 - **Raster stacks:**  
-  Pre-divided raster tiles in `raster_stack_dir/` (e.g. "raster_stack_001.tif"), with layer names matching covariates.
+  Directory: as specified by `raster_stack_dir` (e.g., `Block/Forests_Raster_stack_item`).  
+  Files: e.g., `raster_stack_001.tif`, each containing multiple predictor layers matching your features.
 
 ---
 
 ## Pipeline steps
 
-1. **Feature Selection (FRFS)**
-   - Script: `scripts/step_1_FRFS.R`
-   - Method: Forward Recursive Feature Selection (RF, PLSR, or Cubist, configurable)
-   - Output: best feature set (`*_best_features.rds`), performance log (`*_FRFS_performance.txt`)
+1. **Profile harmonization**  
+   - Script: `scripts/step1_adaptive_equal_area_spline.R`
+   - Input: e.g., `rawdata.csv`.
+   - Output: `harmonized_soil.csv`.
 
-2. **Hyperparameter Tuning & Model Training**
-   - Script: `scripts/step_2_tuning.R`
-   - Runs QRF (ranger) with parameter grid/random search, using best features from previous step
-   - Output: model file (`*_final_qrf_model.rds`), tuning results (`*_optimized_performance.csv`), aggregated results as needed
+2. **Feature Selection (FRFS)**  
+   - Script: `scripts/step2_FRFS.R`
+   - Settings: Controlled by `frfs` section in config.
+   - Output: `best_features.rds`, performance log.
 
-3. **Block-wise Raster Prediction and Mosaicking**
-   - Script: `scripts/step_3_predict.R`
-   - Uses the trained model to predict soil property values on raster tiles and merge to full-coverage mosaics
-   - Outputs: prediction rasters for selected quantiles (e.g., `*_pred.tif`, `*_lower.tif`, `*_upper.tif`)
+3. **Model Tuning & Training**  
+   - Script: `scripts/step_3_tuning.R`
+   - Uses: Only features listed in `best_features.rds`.
+   - Output: `v0_5_final_rf_model.rds`, tuning metrics.
+
+4. **Block-wise Raster Prediction & Mosaicking**  
+   - Script: `scripts/step_4_predict.R`
+   - Predicts values for each raster stack, merges to create final mosaics.
+   - Output: `{output_prefix}_pred.tif`, `{output_prefix}_lower.tif`, `{output_prefix}_upper.tif` in `outputs/cache/`.
 
 ---
 
 ## Configuration (`config.yml`)
 
-All parameters are managed in a single `config.yml`.  
-**Key fields include:**
-- `region`, `soil_property`, `depth`
-- `input_dir`, `raster_stack_dir`, `output_dir`
-- FRFS settings (e.g., method, early_stop, categorical_vars)
-- Model tuning search space (mtry, num.trees, min.node.size, n_evals)
-- Prediction quantiles, checkpoint/cache settings
-- `seed` (for reproducibility)
-- Any script that generates file names or plots should use these variables for consistency
+All steps, file names, and parameters are controlled by `config.yml`:
+
+```yaml
+region: "China"
+soil_property: "pH"
+depth: "05"
+seed: 42
+
+input_dir: "data"
+output_dir: "outputs"
+raster_stack_dir: "Block/Forests_Raster_stack_item"
+output_prefix: "v0_5"
+response_col: "v0_5"
+combined_pattern: "harmonized_soil.csv"
+best_feature_file: "best_features.rds"
+final_model_file: "v0_5_final_rf_model.rds"
+raster_stack_pattern: "^raster_stack_.*\\.tif$"
+
+frfs:
+  method: "rf"
+  early_stop: true
+  rf_num_trees: 500
+  cv_folds: 5
+  categorical_vars:
+    - FT
+    - Geol
+    - Geomor
+    - Soil
+
+tuning:
+  resampling_folds: 5
+  n_evals: 25
+  param_search:
+    mtry:
+      lower: 2
+      upper: null
+    num.trees:
+      lower: 100
+      upper: 500
+    min.node.size:
+      lower: 3
+      upper: 20
+
+prediction:
+  quantiles: [0.05, 0.5, 0.95]
+  cache_dir: "outputs/cache"
+  checkpoint_suffix: "_checkpoint.rds"
+```
 
 ---
 
 ## Outputs
 
-All outputs go to the `outputs/` folder (configurable):
+All output files and results will be placed in `outputs/` (or as specified):
 
-- `<region>_<soilproperty><depth>_best_features.rds` — selected feature names
-- `<region>_<soilproperty><depth>_final_qrf_model.rds` — trained QRF model object
-- `<region>_<soilproperty><depth>_FRFS_performance.txt` — feature selection log
-- `<region>_<soilproperty><depth>_optimized_performance.csv` — tuning/performance metrics
-- `outputs/cache/` — per-tile and merged prediction TIFFs: `*_pred.tif`, `*_lower.tif`, `*_upper.tif`
-- `outputs/sessionInfo.txt` — full R session info for reproducibility
+- `best_features.rds` — selected feature list
+- `v0_5_final_rf_model.rds` — final trained (quantile) random forest model
+- `{output_prefix}_FRFS_performance.txt` — feature selection log
+- `{output_prefix}_optimized_performance.csv` — model evaluation metrics
+- `outputs/cache/` — block-wise and merged prediction TIFFs:
+  - `v0_5_pred.tif`
+  - `v0_5_lower.tif`
+  - `v0_5_upper.tif`
+- `sessionInfo.txt` — session/package info (recommended for reviews)
 
 ---
 
 ## Reproducibility
 
-- **Random seed** is controlled by `seed` in `config.yml`.
-- Use `renv.lock` or Docker to freeze package versions (recommended).
-- For peer review, include:
-  - Your `outputs/sessionInfo.txt`
-  - The exact `config.yml` used
-  - An example input CSV (structure only is sufficient) or a filled `data/metadata_template.md` (if provided)
+- Pipeline seed: controlled via `seed` in config.
+- All parameters, patterns, and paths are controlled centrally.
+- Use `install_deps.R` for dependency setup.
+- For strict reproducibility: use `renv` or Docker.
 
 ---
 
 ## License
 
-A suitable open-source license is required (MIT or Apache-2.0 recommended).  
-Add your `LICENSE` file to the repository root.
+MIT (suggested) or another OSI-approved open-source license.  
+Include a `LICENSE` file.
 
 ---
 
 ## Citation & Contact
 
-If you use this code in your research, please cite the associated publication (add DOI once available) and credit the repository as follows:
-- Project: SinoForestSoilAtlas
-- Author / Contact: cjz-ux (see repository profile or AUTHOR file)
+If you use this pipeline for scientific research, please cite:  
+- ChinaForestSoilProperties-DSM  
+- Author: cjz-ux (see repository profile or AUTHOR file)
 
 ---
 
 ## Notes
 
-- All intermediate files (`*_best_features.rds`, `*_final_qrf_model.rds`, etc.) are generated by the pipeline —  
-  if distributing code only, provide clear metadata templates and instructions.
-- Raster stacks **must** be pre-tiled and spatially aligned; the prediction script operates on user-provided blocks (e.g., `raster_stack_001.tif`).
-- If not yet present, please add `data/metadata_template.md` or a blank example CSV to help users prepare their data structure.
+- Only `config.yml` needs to be changed to alter region, property, depth, or outputs.
+- Input raster stacks must have layers matching selected features.
+- All key files are produced automatically and named consistently.
+- Example metadata or data structure templates are provided in the repository if needed.
